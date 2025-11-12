@@ -1,0 +1,55 @@
+name: build-windows-msvc
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+    paths:
+      - ".github/workflows/build-windows.yml"
+      - "CMakeLists.txt"
+      - "doc/cmake-presets/**"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}\vcpkg
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: |
+          git clone https://github.com/microsoft/vcpkg $Env:VCPKG_ROOT
+          & "$Env:VCPKG_ROOT\bootstrap-vcpkg.bat"
+          echo "VCPKG_ROOT=$Env:VCPKG_ROOT" >> $Env:GITHUB_ENV
+
+      - name: Copy preset (optional)
+        shell: pwsh
+        run: |
+          if (Test-Path .\doc\cmake-presets\CMakeUserPresets.json) {
+            Copy-Item .\doc\cmake-presets\CMakeUserPresets.json . -Force
+          }
+
+      - name: Configure (VS/MSVC)
+        shell: pwsh
+        run: cmake --preset vcpkg-windows-vs
+
+      - name: Build Release
+        shell: pwsh
+        run: cmake --build build --config Release -j
+
+      - name: Package artifacts
+        shell: pwsh
+        run: |
+          $dest = "cesium-native-win64-msvc-Release.zip"
+          $files = Get-ChildItem -Recurse build -Include *.lib,*.dll,*.pdb,*.exe,*.json,*.bin -File
+          if ($files.Count -eq 0) { Write-Error "No build outputs found"; exit 1 }
+          Compress-Archive -Path $files.FullName -DestinationPath $dest -Force
+          Write-Host "Packaged $dest"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cesium-native-win64-msvc-Release
+          path: cesium-native-win64-msvc-Release.zip
